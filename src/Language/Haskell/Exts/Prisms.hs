@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE DataKinds #-}
 module Language.Haskell.Exts.Prisms where
 
 import Language.Haskell.Exts.Syntax
@@ -67,5 +68,28 @@ $(concat <$>
           let exp = TH.ParensE (TH.VarE compose) `TH.AppE` TH.VarE prism `TH.AppE` TH.VarE unwrapped
           let v = TH.ValD (TH.VarP name') (TH.NormalB exp) []
           return [binding, v])
+    else
+      return []))
+
+type family RecordOf (a :: *) :: [*]
+
+$(concat <$>
+  forM types (\tName -> do
+    TH.TyConI (TH.DataD _ _ binders Nothing constructors deriv) <- TH.reify tName
+    if length constructors >= 2 then
+      concat <$>
+        forM constructors (\(TH.NormalC cName tys) -> do
+          Just ty <- TH.lookupTypeName $ "C_" ++ TH.nameBase cName
+          Just recordOf <- TH.lookupTypeName "RecordOf"
+          let getName x =
+                case x of
+                  TH.PlainTV n -> n
+                  TH.KindedTV n _ -> n
+          let vars = map getName binders
+          let f x = foldl' TH.AppT x $ map TH.VarT vars
+          let lhs = f $ TH.ConT ty
+          let list = foldr (\x y -> TH.AppT (TH.AppT TH.PromotedConsT x) y) TH.PromotedNilT $ map snd tys
+          let decl = TH.TySynInstD recordOf $ TH.TySynEqn [lhs] list
+          return [decl])
     else
       return []))
